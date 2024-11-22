@@ -1,0 +1,31 @@
+﻿@using Un2TrekApp.Domain
+<div class="activity-container col-lg-4 col-md-5 mb-2 p-2 ">
+    <div class="d-flex flex-row align-items-center">
+        <img src="/images/puntoverde.png" />
+        <div class="activity-title" style="margin-left:-22px; ">
+            @ActivityToShow.Name
+        </div>
+    </div>
+    <div class="normal-text" style="margin-left:10px;">
+        @ActivityToShow.Description
+    </div>
+    <div class="col-12 text-end m-1">
+        <button type="button" class="col-4 small-filled-button p-2 m-1" style="text-transform: uppercase" @onclick="OpenActivity">
+        Participar
+    </button>
+    </div>
+</div>
+
+@code {
+
+    [Parameter]
+    public Activity ActivityToShow { get; set; }
+
+    [Inject]
+    NavigationManager NavigationManager { get; set; }
+
+    private void OpenActivity()
+    {
+        NavigationManager.NavigateTo($"/maps/{ActivityToShow.Id}");        
+    }
+}

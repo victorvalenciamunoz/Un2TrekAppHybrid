@@ -1,0 +1,118 @@
+﻿@page "/"
+
+@using System.Text.RegularExpressions
+@using System.Text.Json
+@using Blazorise.LottieAnimation
+@using Un2TrekApp.Authentication
+@using Un2TrekApp.Storage
+
+<div class="d-flex flex-column justify-content-center align-items-center"
+     style="background-image:url('/images/main_back.webp'); background-repeat:no-repeat;background-size: cover; min-height:100vh;">
+    <div style="display:@(_isBusy?"block":"none"); height:100%">
+        <LottieAnimation Path="/animations/trekking.json" Style="height: 250px;" Loop="true" />
+    </div>
+    <div class="header col-lg-4 col-md-5" style="display:@(_isBusy?"none":"block")">
+        <div class="container" style="text-align:center">
+            <div class="pb-5" style="height:90%">
+                <div class="pt-3">
+                    <img src="/images/logo_blanco_un2trek_verde.png" />
+                </div>
+                <div class="col-12 text-center secondary-title">
+                    Introduce credenciales
+                    <div class="col-12 mt-5 ps-5 pe-5" style="height:45px">
+                        <InputText type="email" class="default-textbox col-12 p-xxl-3 p-xl-2 p-1" @bind-Value=_request.Email placeholder="Email"></InputText>
+                    </div>
+                    <div class="col-12 mt-5 ps-5 pe-5" style="height:45px">
+                        <InputText type="password" class="default-textbox col-12 p-xxl-3 p-xl-2 p-1" @bind-Value=_request.Password placeholder="Password"></InputText>
+                    </div>
+                    <div class="col-12 mt-5 ps-5 pe-5" style="height:50px">
+                        <button class="col-12 default-filled-button" @onclick="DoLogin">Iniciar sesión</button>
+                    </div>
+                    <div class="col-12 mt-3 ps-5 pe-5 d-flex justify-content-end" style="height:50px; font-size:12px">
+                        <a href="/registration" class="default-link">¿No tienes una cuenta? Regístrate</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+@code {
+    [Inject]
+    NotificationService NotificationService { get; set; }
+
+    [Inject]
+    IAuthService authService { get; set; }
+
+    [Inject]
+    ILocalStorage localStorage { get; set; }
+
+    [Inject]
+    NavigationManager NavigationManager { get; set; }
+
+    private LoginRequest _request = new();
+    private bool _isBusy = false;
+
+    protected override void OnInitialized()
+    {        
+        _request = new();
+        
+
+        base.OnInitialized();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var request = new GeolocationRequest(GeolocationAccuracy.Medium);
+        var location = await Geolocation.GetLocationAsync(request);
+    }
+    private async Task DoLogin()
+    {
+        _isBusy = true;
+        if (!IsValidEmailAddress())
+        {
+            _isBusy = false;
+            ShowErrorMessage("El email no es válido");
+            return;
+        }
+
+        if (string.IsNullOrEmpty(_request.Password))
+        {
+            _isBusy = false;
+            ShowErrorMessage("La contraseña no es válida");
+            return;
+        };
+
+        var loginResult = await authService.DoLoginAsync(_request);
+        if (loginResult is null)
+        {
+            _isBusy = false;
+            ShowErrorMessage("El usuario y/o la contraseña son incorrectas");
+            return;
+        }
+
+        loginResult.Pass = _request.Password;
+        await localStorage.SetAsync(App.StorageUserInfoKey, JsonSerializer.Serialize(loginResult));
+
+        NavigationManager.NavigateTo("activity-list");
+
+        _isBusy = false;
+    }
+
+    private bool IsValidEmailAddress()
+    {
+        var regex = new Regex(@"^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*$", RegexOptions.Compiled);
+        return regex.IsMatch(_request.Email);
+    }
+
+    private void ShowErrorMessage(string message)
+    {
+        NotificationService.Notify(
+             new NotificationMessage
+                 {
+                     Severity = NotificationSeverity.Warning,
+                     Summary = "Un2Trek",
+                     Detail = message,
+                     Duration = 4000
+                 });
+    }
+}

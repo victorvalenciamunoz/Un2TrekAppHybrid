@@ -1,0 +1,63 @@
+﻿@using Un2TrekApp.Domain
+
+@implements IDialogContentComponent<Treki>
+
+@inject IJSRuntime JsRuntime
+
+<style>
+    .dialog-body-custom {
+        height: 80vh;
+    }
+</style>
+@* Header *@
+<FluentDialogHeader ShowDismiss="true">
+    <FluentStack VerticalAlignment="VerticalAlignment.Center">
+        <FluentLabel Typo="Typography.PaneHeader" Style="color:white">
+            @Dialog.Instance.Parameters.Title
+        </FluentLabel>
+    </FluentStack>
+</FluentDialogHeader>
+
+@* Body *@
+<FluentDialogBody Class="dialog-body-custom">
+    <div class="treki-info-container col-lg-4 col-md-5 mb-2 p-2 ">
+        <div class="d-flex flex-row align-items-center">
+            <img src="/images/puntoverde.png" />
+            <div class="treki-info-title" style="margin-left:-22px; ">
+                @Content.Title
+            </div>
+        </div>
+        <div class="normal-text" style="margin-left:10px;">
+            @Content.Description
+        </div>
+    </div>
+
+</FluentDialogBody>
+
+@* Footer *@
+<FluentDialogFooter>
+    <button class="default-filled-button" @onclick="() => CancelAsync()">Cerrar</button>
+</FluentDialogFooter>
+@code {
+    IJSObjectReference jsModule;
+
+    [Parameter]
+    public Treki Content { get; set; } = default!;
+
+    [CascadingParameter]
+    public FluentDialog Dialog { get; set; } = default!;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            jsModule = await JsRuntime.InvokeAsync<IJSObjectReference>("import", "/Components/Maps/TrekiInfoDialog.razor.js");
+            await jsModule.InvokeVoidAsync("modifyDialogStyle");
+        }
+    }
+
+    private async Task CancelAsync()
+    {
+        await Dialog.CancelAsync();
+    }
+}

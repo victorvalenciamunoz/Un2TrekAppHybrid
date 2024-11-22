@@ -1,0 +1,328 @@
+﻿@page "/maps/{activity}"
+
+@using Blazicons
+@using Blazorise.LottieAnimation
+@using GoogleMapsComponents
+@using GoogleMapsComponents.Maps
+@using System.Text.Json
+@using Un2TrekApp.Domain
+@using Un2TrekApp.Storage
+@using Un2TrekApp.Trekis
+
+@inject IJSRuntime JsRuntime
+@inject IDialogService dialogService
+
+<div class="d-flex flex-column" style="height:100%">
+    <div style="display:@(_isBusy?"block":"none"); height:100%">
+        <LottieAnimation Path="/animations/trekking.json" Style="height: 250px;" Loop="true" />
+    </div>
+    <div class="flex-fill" style="color:black">
+        <GoogleMap @ref="@_map1" Id="map1" Options="@mapOptions"
+                   OnAfterInit="AfterMapRender"></GoogleMap>
+    </div>
+    <div class="col-12 d-flex flex-row" style="height:80px; ">
+        <div class="footer-menu-item flex-grow-1 d-flex flex-column justify-content-center align-items-center" @onclick="CenterUserPositionAsync">
+            Mi posición
+            <div style="font-size: 200%;">
+                <Blazicon Svg="FluentUiIcon.Location"></Blazicon>
+            </div>
+        </div>
+        <div class="footer-menu-item flex-grow-1 d-flex flex-column justify-content-center align-items-center"
+             disabled="@(_selectedTreki is not null)" @onclick="OpenTrekiInfoDialog">
+            Info
+            <div style="font-size: 200%;">
+                <Blazicon Svg="FluentUiIcon.GlobeSearch"></Blazicon>
+            </div>
+        </div>
+        <div class="footer-menu-item flex-grow-1 d-flex flex-column justify-content-center align-items-center"
+             disabled="@(_selectedTreki is not null)" @onclick="CaptureTreki">
+            ¡Lo tengo!
+            <div style="font-size: 200%;">
+                <Blazicon Svg="FluentUiIcon.PeopleTeam"></Blazicon>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+
+    [Parameter]
+    public string Activity { get; set; }
+
+    [Inject]
+    ITrekisService TrekisService { get; set; }
+
+    [Inject]
+    ILocalStorage localStorage { get; set; }
+
+    [Inject]
+    NotificationService NotificationService { get; set; }
+
+    private bool _isBusy = true;
+    private LatLngBounds _bounds;
+    private GoogleMap _map1;
+    private MapOptions mapOptions;
+    private Treki? _selectedTreki = null;
+    private Marker? _previousSelectedMarker = null;
+    private List<Marker> _markers = new List<Marker>();
+    private List<Treki> _trekis = new List<Treki>();
+    (double Latitude, double Longitude)? currentLocation;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _selectedTreki = null;
+        await CenterUserPositionAsync();
+    }
+
+    private void SetMapOptions(double latitud, double longitud)
+    {
+        mapOptions = new MapOptions()
+            {
+                MapTypeId = MapTypeId.Roadmap,
+                Center = new LatLngLiteral
+                {
+                    Lat = latitud,
+                    Lng = longitud
+                },
+                Zoom = 15
+            };
+    }
+
+    private async Task AfterMapRender()
+    {
+        _bounds = await LatLngBounds.CreateAsync(_map1.JsRuntime);
+        if (currentLocation is not null)
+        {
+            _trekis = (await GetTrekisAsync()).ToList();
+
+            await AddMarkersToMapAsync(_trekis, (currentLocation.Value.Latitude, currentLocation.Value.Longitude));
+
+            if (mapOptions.Center != null)
+            {
+                await _map1.InteropObject.SetCenter(mapOptions.Center);
+                await _map1.InteropObject.SetZoom(mapOptions.Zoom ?? 15);
+                await _map1.InteropObject.SetMapTypeId(mapOptions.MapTypeId);
+            }
+        }
+    }
+
+    private async Task<IEnumerable<Treki>> GetTrekisAsync()
+    {
+        return await TrekisService.GetTrekiListByActivityAsync(Activity);
+    }
+
+    private async Task AddMarkersToMapAsync(List<Treki> trekis, (double latitud, double longitud) refPosition)
+    {
+        await ClearMarkersAsync();
+
+        var markerPositions = new List<LatLngLiteral>();
+
+        LatLngLiteral currentPositionMark = new LatLngLiteral { Lat = refPosition.latitud, Lng = refPosition.longitud };
+        markerPositions.Add(currentPositionMark);
+        var currentPositionmarkerOptions = new MarkerOptions
+            {
+                Position = currentPositionMark,
+                Map = _map1.InteropObject,
+                Icon = new GoogleMapsComponents.Maps.Icon
+                {
+                    Url = "/images/userlocation.png",
+                    ScaledSize = new Size { Width = 50, Height = 50 }
+                }
+            };
+
+        var marker = await Marker.CreateAsync(JsRuntime, currentPositionmarkerOptions);
+        _markers.Add(marker);
+
+        foreach (var position in trekis)
+        {
+            LatLngLiteral newMark = new LatLngLiteral { Lat = position.Latitude, Lng = position.Longitude };
+            markerPositions.Add(newMark);
+            marker = await CreateTrekiMarker(position);
+
+            _markers.Add(marker);
+        }
+    }
+
+    private async Task ClearMarkersAsync()
+    {
+        var markersCopy = new List<Marker>(_markers);
+        foreach (var marker in markersCopy)
+        {
+            await marker.SetMap(null);
+        }
+        _markers.Clear();
+    }
+
+    private async Task<Marker> CreateTrekiMarker(Treki treki)
+    {
+        var newMarkerOptions = new MarkerOptions
+            {
+                Position = new LatLngLiteral { Lat = treki.Latitude, Lng = treki.Longitude },
+                Map = _map1.InteropObject,
+                Icon = new GoogleMapsComponents.Maps.Icon
+                {
+                    Url = "/images/pinmap.png",
+                    ScaledSize = new Size { Width = 60, Height = 60 }
+                }
+            };
+
+
+        var newMarker = await Marker.CreateAsync(JsRuntime, newMarkerOptions);
+        await newMarker.AddListener("click", async () => await OnMarkerClick(treki, newMarker));
+
+        return newMarker;
+    }
+
+    private async Task<Marker> CreateTrekiSelectedMarker(Treki treki)
+    {
+        var newMarkerOptions = new MarkerOptions
+            {
+                Position = new LatLngLiteral { Lat = treki.Latitude, Lng = treki.Longitude },
+                Map = _map1.InteropObject,
+                Icon = new GoogleMapsComponents.Maps.Icon
+                {
+                    Url = "/images/pinmap_selected.png",
+                    ScaledSize = new Size { Width = 60, Height = 60 }
+                }
+            };
+
+
+        var newMarker = await Marker.CreateAsync(JsRuntime, newMarkerOptions);
+        await newMarker.AddListener("click", async () => await OnMarkerClick(treki, newMarker));
+
+        return newMarker;
+    }
+
+    private async Task<(double Latitude, double Longitude)?> GetLocationAsync()
+    {
+        try
+        {
+            var request = new GeolocationRequest(GeolocationAccuracy.Medium);
+            var location = await Geolocation.GetLocationAsync(request);
+            if (location != null)
+            {
+                Console.WriteLine($"Latitude: {location.Latitude}, Longitude: {location.Longitude}");
+                return (location.Latitude, location.Longitude);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Manejar errores aquí
+            Console.WriteLine($"Error: {ex.Message}");
+        }
+
+        return null;
+    }
+
+    private async Task CenterUserPositionAsync()
+    {
+        _isBusy = true;
+        currentLocation = await GetLocationAsync();
+        SetMapOptions(currentLocation.Value.Latitude, currentLocation.Value.Longitude);
+        await AfterMapRender();
+        _isBusy = false;
+    }
+
+    private async Task OnMarkerClick(Treki treki, Marker marker)
+    {
+        if (_previousSelectedMarker != null)
+        {
+            await _previousSelectedMarker.SetIcon(new GoogleMapsComponents.Maps.Icon
+                {
+                    Url = "/images/pinmap.png",
+                    ScaledSize = new Size { Width = 60, Height = 60 }
+                });
+        }
+
+        await marker.SetMap(null);
+
+        var newMarker = await CreateTrekiSelectedMarker(treki);
+
+        await newMarker.SetAnimation(Animation.Bounce);        
+        await Task.Delay(700);
+
+        await newMarker.SetAnimation(null);
+
+        _selectedTreki = new Treki
+            {
+                Description = treki.Description,
+                Id = treki.Id,
+                Latitude = treki.Latitude,
+                Longitude = treki.Longitude,
+                Title = treki.Title
+            };
+
+        _markers.Add(newMarker);
+
+        _previousSelectedMarker = newMarker;
+    }
+
+    private async Task OpenTrekiInfoDialog(MouseEventArgs e)
+    {
+        if (_selectedTreki is null)
+        {
+            //TODO: Mostrar mensaje de error
+            return;
+        }
+        var dialog = await dialogService.ShowDialogAsync<TrekiInfoDialog>(_selectedTreki, new DialogParameters()
+            {
+                Title = $"Información",
+                PreventDismissOnOverlayClick = true,
+                PreventScroll = true,
+            });
+    }
+
+    private async Task CaptureTreki()
+    {
+        if (_selectedTreki is null)
+        {
+            ShowWarningNotification("Selecciona un Treki para capturarlo");
+            return;
+        }
+        if (currentLocation is null)
+        {
+            ShowWarningNotification("No se ha podido obtener tu ubicación actual");
+            return;
+        }
+
+        string serializedUserInfo = await localStorage.GetAsync(App.StorageUserInfoKey);
+        var userInfo = JsonSerializer.Deserialize<User>(serializedUserInfo);
+        var result = await TrekisService.CaptureTreki(Activity, _selectedTreki, currentLocation.Value, userInfo.UserId);
+
+        if (result.IsError)
+        {
+            ShowErrorNotification(result.FirstError.Description);
+            return;
+        }
+
+        await dialogService.ShowDialogAsync<TrekiCaptured>(_selectedTreki, new DialogParameters()
+            {
+                Title = $"Información",
+                PreventDismissOnOverlayClick = true,
+                PreventScroll = true,
+            });
+    }
+     
+    private void ShowErrorNotification(string message)
+    {
+        NotificationService.Notify(
+             new NotificationMessage
+                 {
+                     Severity = NotificationSeverity.Error,
+                     Summary = "Un2Trek",
+                     Detail = message,
+                     Duration = 4000
+                 });
+    }
+    private void ShowWarningNotification(string message)
+    {
+        NotificationService.Notify(
+             new NotificationMessage
+                 {
+                     Severity = NotificationSeverity.Warning,
+                     Summary = "Un2Trek",
+                     Detail = message,
+                     Duration = 4000
+                 });
+    }
+}
