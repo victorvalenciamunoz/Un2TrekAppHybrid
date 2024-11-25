@@ -2,9 +2,8 @@
 
 @using Blazicons
 @using Blazorise.LottieAnimation
-@using GoogleMapsComponents
-@using GoogleMapsComponents.Maps
 @using System.Text.Json
+@using Un2TrekApp.Activities
 @using Un2TrekApp.Domain
 @using Un2TrekApp.Storage
 @using Un2TrekApp.Trekis
@@ -13,12 +12,11 @@
 @inject IDialogService dialogService
 
 <div class="d-flex flex-column" style="height:100%">
-    <div style="display:@(_isBusy?"block":"none"); height:100%">
-        <LottieAnimation Path="/animations/trekking.json" Style="height: 250px;" Loop="true" />
-    </div>
-    <div class="flex-fill" style="color:black">
-        <GoogleMap @ref="@_map1" Id="map1" Options="@mapOptions"
-                   OnAfterInit="AfterMapRender"></GoogleMap>
+    <div id="map" class="flex-fill" style="color:black; height:100%">
+        @if (_isBusy)
+        {
+            <LottieAnimation Path="/animations/trekking.json" Style="height: 250px;" Loop="true" />
+        }
     </div>
     <div class="col-12 d-flex flex-row" style="height:80px; ">
         <div class="footer-menu-item flex-grow-1 d-flex flex-column justify-content-center align-items-center" @onclick="CenterUserPositionAsync">
@@ -53,144 +51,76 @@
     ITrekisService TrekisService { get; set; }
 
     [Inject]
+    IActivitiesService ActivitiesService { get; set; }
+
+    [Inject]
     ILocalStorage localStorage { get; set; }
 
     [Inject]
     NotificationService NotificationService { get; set; }
 
+    private IJSObjectReference _jsModule;
+
     private bool _isBusy = true;
-    private LatLngBounds _bounds;
-    private GoogleMap _map1;
-    private MapOptions mapOptions;
     private Treki? _selectedTreki = null;
-    private Marker? _previousSelectedMarker = null;
-    private List<Marker> _markers = new List<Marker>();
     private List<Treki> _trekis = new List<Treki>();
     (double Latitude, double Longitude)? currentLocation;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _jsModule = await JsRuntime.InvokeAsync<IJSObjectReference>("import", "./Components/Maps/MapsComponent.razor.js");
+            await _jsModule.InvokeVoidAsync("initializeMap", DotNetObjectReference.Create(this));
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
         _selectedTreki = null;
-        await CenterUserPositionAsync();
-    }
-
-    private void SetMapOptions(double latitud, double longitud)
-    {
-        mapOptions = new MapOptions()
-            {
-                MapTypeId = MapTypeId.Roadmap,
-                Center = new LatLngLiteral
-                {
-                    Lat = latitud,
-                    Lng = longitud
-                },
-                Zoom = 15
-            };
-    }
-
-    private async Task AfterMapRender()
-    {
-        _bounds = await LatLngBounds.CreateAsync(_map1.JsRuntime);
-        if (currentLocation is not null)
-        {
-            _trekis = (await GetTrekisAsync()).ToList();
-
-            await AddMarkersToMapAsync(_trekis, (currentLocation.Value.Latitude, currentLocation.Value.Longitude));
-
-            if (mapOptions.Center != null)
-            {
-                await _map1.InteropObject.SetCenter(mapOptions.Center);
-                await _map1.InteropObject.SetZoom(mapOptions.Zoom ?? 15);
-                await _map1.InteropObject.SetMapTypeId(mapOptions.MapTypeId);
-            }
-        }
+        await SetMapUserLocation();
     }
 
     private async Task<IEnumerable<Treki>> GetTrekisAsync()
     {
-        return await TrekisService.GetTrekiListByActivityAsync(Activity);
+        return await ActivitiesService.GetTrekiListByActivityAsync(Activity);
+    }
+
+    private async Task SetMapUserLocation()
+    {
+        currentLocation = await GetLocationAsync();
+        await InitMap();
+    }
+
+    private async Task InitMap()
+    {
+        await CenterUserPositionAsync();
+        if (currentLocation is not null)
+        {
+            _trekis = (await GetTrekisAsync()).ToList();
+            await AddMarkersToMapAsync(_trekis.ToList(), (currentLocation.Value.Latitude, currentLocation.Value.Longitude));
+        }
+    
     }
 
     private async Task AddMarkersToMapAsync(List<Treki> trekis, (double latitud, double longitud) refPosition)
     {
-        await ClearMarkersAsync();
+        var positions = trekis.Select(treki => new { lat = treki.Latitude, lon = treki.Longitude }).ToList();
 
-        var markerPositions = new List<LatLngLiteral>();
+        await _jsModule.InvokeVoidAsync("ClearMarkers");
+        await _jsModule.InvokeVoidAsync("AddCurrentUserLocationMarker", refPosition.latitud, refPosition.longitud);
+        await _jsModule.InvokeVoidAsync("AddMarkers", positions);
+    }
 
-        LatLngLiteral currentPositionMark = new LatLngLiteral { Lat = refPosition.latitud, Lng = refPosition.longitud };
-        markerPositions.Add(currentPositionMark);
-        var currentPositionmarkerOptions = new MarkerOptions
-            {
-                Position = currentPositionMark,
-                Map = _map1.InteropObject,
-                Icon = new GoogleMapsComponents.Maps.Icon
-                {
-                    Url = "/images/userlocation.png",
-                    ScaledSize = new Size { Width = 50, Height = 50 }
-                }
-            };
+    private async Task CenterUserPositionAsync()
+    {
+        _isBusy = true;
 
-        var marker = await Marker.CreateAsync(JsRuntime, currentPositionmarkerOptions);
-        _markers.Add(marker);
-
-        foreach (var position in trekis)
+        if (currentLocation.HasValue)
         {
-            LatLngLiteral newMark = new LatLngLiteral { Lat = position.Latitude, Lng = position.Longitude };
-            markerPositions.Add(newMark);
-            marker = await CreateTrekiMarker(position);
-
-            _markers.Add(marker);
+            await _jsModule.InvokeVoidAsync("AddCurrentUserLocationMarker", currentLocation.Value.Latitude, currentLocation.Value.Longitude);
         }
-    }
-
-    private async Task ClearMarkersAsync()
-    {
-        var markersCopy = new List<Marker>(_markers);
-        foreach (var marker in markersCopy)
-        {
-            await marker.SetMap(null);
-        }
-        _markers.Clear();
-    }
-
-    private async Task<Marker> CreateTrekiMarker(Treki treki)
-    {
-        var newMarkerOptions = new MarkerOptions
-            {
-                Position = new LatLngLiteral { Lat = treki.Latitude, Lng = treki.Longitude },
-                Map = _map1.InteropObject,
-                Icon = new GoogleMapsComponents.Maps.Icon
-                {
-                    Url = "/images/pinmap.png",
-                    ScaledSize = new Size { Width = 60, Height = 60 }
-                }
-            };
-
-
-        var newMarker = await Marker.CreateAsync(JsRuntime, newMarkerOptions);
-        await newMarker.AddListener("click", async () => await OnMarkerClick(treki, newMarker));
-
-        return newMarker;
-    }
-
-    private async Task<Marker> CreateTrekiSelectedMarker(Treki treki)
-    {
-        var newMarkerOptions = new MarkerOptions
-            {
-                Position = new LatLngLiteral { Lat = treki.Latitude, Lng = treki.Longitude },
-                Map = _map1.InteropObject,
-                Icon = new GoogleMapsComponents.Maps.Icon
-                {
-                    Url = "/images/pinmap_selected.png",
-                    ScaledSize = new Size { Width = 60, Height = 60 }
-                }
-            };
-
-
-        var newMarker = await Marker.CreateAsync(JsRuntime, newMarkerOptions);
-        await newMarker.AddListener("click", async () => await OnMarkerClick(treki, newMarker));
-
-        return newMarker;
+        _isBusy = false;
     }
 
     private async Task<(double Latitude, double Longitude)?> GetLocationAsync()
@@ -214,47 +144,21 @@
         return null;
     }
 
-    private async Task CenterUserPositionAsync()
+    [JSInvokable]
+    public async Task MarkerClicked(double latitude, double longitude)
     {
-        _isBusy = true;
-        currentLocation = await GetLocationAsync();
-        SetMapOptions(currentLocation.Value.Latitude, currentLocation.Value.Longitude);
-        await AfterMapRender();
-        _isBusy = false;
-    }
-
-    private async Task OnMarkerClick(Treki treki, Marker marker)
-    {
-        if (_previousSelectedMarker != null)
+        if (_trekis.Any())
         {
-            await _previousSelectedMarker.SetIcon(new GoogleMapsComponents.Maps.Icon
+            var treki = _trekis.FirstOrDefault(p => p.Latitude == latitude && p.Longitude == longitude);
+            _selectedTreki = new Treki
                 {
-                    Url = "/images/pinmap.png",
-                    ScaledSize = new Size { Width = 60, Height = 60 }
-                });
+                    Description = treki.Description,
+                    Id = treki.Id,
+                    Latitude = treki.Latitude,
+                    Longitude = treki.Longitude,
+                    Title = treki.Title
+                };
         }
-
-        await marker.SetMap(null);
-
-        var newMarker = await CreateTrekiSelectedMarker(treki);
-
-        await newMarker.SetAnimation(Animation.Bounce);        
-        await Task.Delay(700);
-
-        await newMarker.SetAnimation(null);
-
-        _selectedTreki = new Treki
-            {
-                Description = treki.Description,
-                Id = treki.Id,
-                Latitude = treki.Latitude,
-                Longitude = treki.Longitude,
-                Title = treki.Title
-            };
-
-        _markers.Add(newMarker);
-
-        _previousSelectedMarker = newMarker;
     }
 
     private async Task OpenTrekiInfoDialog(MouseEventArgs e)
@@ -302,7 +206,7 @@
                 PreventScroll = true,
             });
     }
-     
+
     private void ShowErrorNotification(string message)
     {
         NotificationService.Notify(
@@ -314,6 +218,7 @@
                      Duration = 4000
                  });
     }
+
     private void ShowWarningNotification(string message)
     {
         NotificationService.Notify(

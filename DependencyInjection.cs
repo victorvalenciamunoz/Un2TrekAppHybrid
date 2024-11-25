@@ -1,7 +1,6 @@
 ﻿using Blazorise;
 using Blazorise.Bootstrap5;
 using Blazorise.Icons.FontAwesome;
-using GoogleMapsComponents;
 using Microsoft.FluentUI.AspNetCore.Components;
 using Radzen;
 using Un2TrekApp.Activities;
@@ -24,8 +23,7 @@ internal static class DependencyInjection
     private static void AddExternalComponents(this IServiceCollection services)
     {
         services.AddFluentUIComponents();
-        services.AddRadzenComponents();
-        services.AddBlazorGoogleMaps("AIzaSyCmn5Breovcda8Ib8ah4TRR9kGdLj8aOzs");
+        services.AddRadzenComponents();        
 
         services.AddScoped<NotificationService>();
 
@@ -59,11 +57,5 @@ internal static class DependencyInjection
         {
             client.BaseAddress = new Uri($"{apiBaseUrl}trekis/");
         });
-    }
-
-    public static IServiceCollection AddBlazorGoogleMaps(this IServiceCollection services, string key)
-    {
-        services.AddScoped<IBlazorGoogleMapsKeyService>(_ => new BlazorGoogleMapsKeyService(key));
-        return services;
     }
 }

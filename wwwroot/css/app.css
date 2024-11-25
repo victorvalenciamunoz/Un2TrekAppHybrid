@@ -175,6 +175,6 @@ a {
     background: linear-gradient(#60b238, rgba(4, 69, 3, 1));
 }
 
-#map1 {
-    height: 100% !important;
+.leaflet-bottom {
+    z-index: 500 !important;
 }

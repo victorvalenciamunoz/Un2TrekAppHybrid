@@ -151,20 +151,20 @@ internal class AuthService : TokenServiceBase, IAuthService
 
         foreach (var keyValuePair in decodedValue.Payload)
         {
-            if (keyValuePair.Key.Contains("userName"))
+            if (keyValuePair.Key.Contains("email"))
             {
                 result.Email = keyValuePair.Value.ToString();
                 result.UserName = keyValuePair.Value.ToString();
             }
-            if (keyValuePair.Key.Contains("sub"))
+            if (keyValuePair.Key.Contains("nameid"))
             {
                 result.UserId = keyValuePair.Value.ToString();
             }
-            if (keyValuePair.Key.Contains("fullName"))
+            if (keyValuePair.Key.Contains("name"))
             {
                 result.FullName = keyValuePair.Value.ToString();
             }
-            if (keyValuePair.Key.Contains("userRoles"))
+            if (keyValuePair.Key.Contains("role"))
             {
                 result.UserRoles = keyValuePair.Value.ToString();
             }

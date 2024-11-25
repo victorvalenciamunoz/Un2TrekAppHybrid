@@ -5,6 +5,5 @@ namespace Un2TrekApp.Trekis;
 
 internal interface ITrekisService
 {
-    Task<ErrorOr<Success>> CaptureTreki(string activityId, Treki treki, (double Latitude, double Longitude) currentLocation, string userId);
-    Task<List<Treki>> GetTrekiListByActivityAsync(string activityId);
+    Task<ErrorOr<Success>> CaptureTreki(string activityId, Treki treki, (double Latitude, double Longitude) currentLocation, string userId);    
 }
